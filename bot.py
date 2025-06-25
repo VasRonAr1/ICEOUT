@@ -1,3 +1,5 @@
+
+
 import logging
 import os
 import json
@@ -9,12 +11,14 @@ from telegram.ext import (
 from datetime import timezone
 
 BOT_TOKEN = '7890125145:AAErI0CeqVg_5YwDxrGfMJ_0PgnANtGj20U'
-
 # Файл для хранения списка зарегистрированных чатов
 DATA_FILE = 'registered_chats.json'
 
 # Список разрешённых @username в Телеграм
-ALLOWED_USERNAMES = {  'ICE_OUT', 'SpammBotss' , 'FOUR4TWENTYo89'}
+ALLOWED_USERNAMES = {'Kekdkddkfk', 'SpammBotss', 'Ujuvd', 'evenyqlp'}
+
+# Список заблокированных user_id (добавь user_id пользователя, которого нужно заблокировать)
+BLOCKED_USER_IDS = {6681493700}  # Замени на реальный user_id, если отличается
 
 # Загрузка зарегистрированных чатов
 if os.path.exists(DATA_FILE):
@@ -23,8 +27,14 @@ if os.path.exists(DATA_FILE):
 else:
     registered_chats = set()
 
-# Словарь для хранения промежуточных данных пользователя (состояния, интервала и т.п.)
+# Словарь для хранения промежуточных данных пользователя
 user_data = {}
+
+# Словарь для хранения статуса сессий
+active_sessions = {i: False for i in range(1, 11)}
+
+# Словарь для хранения запланированных заданий
+scheduled_jobs = {i: None for i in range(1, 11)}
 
 # Логирование
 logging.basicConfig(
@@ -32,157 +42,162 @@ logging.basicConfig(
     level=logging.INFO
 )
 
-# Словарь для хранения запланированных заданий
-scheduled_jobs = {}
-
-
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_chat.type != 'private':
         return
 
     user_id = update.effective_user.id
-    username = update.effective_user.username  # @username без @
+    username = update.effective_user.username
     logging.info(f"Получена команда /start от пользователя ID: {user_id}, username: @{username}")
 
-    # Проверяем, есть ли @username пользователя в списке разрешённых
-    if username not in ALLOWED_USERNAMES:
-        # Сообщение на немецком
+    if user_id in BLOCKED_USER_IDS or (username and username not in ALLOWED_USERNAMES):
         await update.message.reply_text(
-            "Hallo, möchtest du auch so einen Bot? "
-            "Schreib mir @SpammBotss, du kannst ihn einen Tag lang kostenlos ausprobieren."
+            "Ihr Zugang zu diesem Bot wurde widerrufen. Kontaktieren Sie den Administrator, wenn Sie Fragen haben."
         )
         return
 
-    # Если пользователь в списке разрешённых, показываем кнопки
-    keyboard = [
-        [
-            InlineKeyboardButton("📂 Chats ansehen", callback_data='view_chats'),
-            InlineKeyboardButton("📤 Nachricht senden", callback_data='send_message'),
-        ],
-        [
-            InlineKeyboardButton("🛑 Verteilung stoppen", callback_data='stop_broadcast'),
-        ]
-    ]
-    reply_markup = InlineKeyboardMarkup(keyboard)
+    await send_menu(update, context)
 
-    await update.message.reply_text(
-        "📋 Wählen Sie eine Aktion:",
-        reply_markup=reply_markup
-    )
+async def send_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id if update.effective_user else None
+    username = update.effective_user.username if update.effective_user else None
 
-
-async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.effective_chat.type != 'private':
+    if user_id in BLOCKED_USER_IDS or (username and username not in ALLOWED_USERNAMES):
+        if update.callback_query:
+            await update.callback_query.message.edit_text(
+                "Ihr Zugang zu diesem Bot wurde widerrufen. Kontaktieren Sie den Administrator, wenn Sie Fragen haben."
+            )
+        elif update.message:
+            await update.message.reply_text(
+                "Ihr Zugang zu diesem Bot wurde widerrufen. Kontaktieren Sie den Administrator, wenn Sie Fragen haben."
+            )
         return
 
-    user_id = update.effective_user.id
-    logging.info(f"Пользователь {user_id} запросил команду /help.")
-
-    await update.message.reply_text(
-        "ℹ️ Dieser Bot ermöglicht das Senden von Nachrichten 📤 in alle Chats, in denen er hinzugefügt wurde. 📂\n\n"
-        "🔧 Verfügbare Befehle:\n"
-        "/start - Starten Sie die Arbeit mit dem Bot 🚀\n"
-        "/help - Zeigen Sie diese Nachricht an ❓\n"
-        "/stop - Stoppen Sie die aktuelle Verteilung 🛑"
-    )
-
+    keyboard = []
+    for i in range(1, 11, 2):
+        row = [
+            InlineKeyboardButton(
+                f"Spam {i} {'✅' if active_sessions[i] else ''}",
+                callback_data=f'spam_{i}'
+            )
+        ]
+        if active_sessions[i]:
+            row.append(InlineKeyboardButton(f"Stop {i}", callback_data=f'stop_{i}'))
+        if i + 1 <= 10:
+            row.append(InlineKeyboardButton(
+                f"Spam {i+1} {'✅' if active_sessions[i+1] else ''}",
+                callback_data=f'spam_{i+1}'
+            ))
+            if active_sessions[i+1]:
+                row.append(InlineKeyboardButton(f"Stop {i+1}", callback_data=f'stop_{i+1}'))
+        keyboard.append(row)
+    keyboard.append([InlineKeyboardButton("📂 Chats ansehen", callback_data='view_chats')])
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    if update.callback_query:
+        try:
+            await update.callback_query.message.edit_text("📋 Wählen Sie eine Aktion:", reply_markup=reply_markup)
+        except telegram.error.BadRequest as e:
+            if "Message is not modified" in str(e):
+                pass
+            else:
+                raise
+    elif update.message:
+        await update.message.reply_text("📋 Wählen Sie eine Aktion:", reply_markup=reply_markup)
 
 async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
 
     user_id = query.from_user.id
-    logging.info(f"Пользователь {user_id} нажал кнопку: {query.data}")
+    username = query.from_user.username
+    logging.info(f"Пользователь {user_id} (@{username}) нажал кнопку: {query.data}")
 
-    if query.data == 'view_chats':
+    if user_id in BLOCKED_USER_IDS or (username and username not in ALLOWED_USERNAMES):
+        await query.message.edit_text(
+            "Ihr Zugang zu diesem Bot wurde widerrufen. Kontaktieren Sie den Administrator, wenn Sie Fragen haben."
+        )
+        return
+
+    if query.data.startswith('spam_'):
+        session = int(query.data.split('_')[1])
+        if active_sessions[session]:
+            await query.message.reply_text(f"⚠️ Spam {session} ist bereits aktiv. Drücken Sie 'Stop {session}' um es zu stoppen.")
+        else:
+            user_data[user_id] = {'state': 'awaiting_message', 'session': session}
+            await query.message.reply_text(f"✉️ Bitte senden Sie die Nachricht für Spam {session}.")
+        await send_menu(update, context)
+    elif query.data.startswith('stop_'):
+        session = int(query.data.split('_')[1])
+        if active_sessions[session]:
+            if scheduled_jobs[session]:
+                scheduled_jobs[session].schedule_removal()
+                scheduled_jobs[session] = None
+            active_sessions[session] = False
+            await query.message.reply_text(f"🛑 Spam {session} wurde gestoppt.")
+        else:
+            await query.message.reply_text(f"❌ Spam {session} ist nicht aktiv.")
+        await send_menu(update, context)
+    elif query.data == 'view_chats':
         if registered_chats:
             chat_list = '\n'.join([f"{chat_title} ({chat_id})" for chat_id, chat_title in registered_chats])
             await query.message.reply_text(f"📂 Der Bot ist in folgenden Chats hinzugefügt:\n{chat_list}")
         else:
             await query.message.reply_text("🚫 Der Bot ist in keinem Chat hinzugefügt.")
-    elif query.data == 'send_message':
-        user_data[user_id] = {'state': 'awaiting_interval'}
-        await query.message.reply_text("⏰ Bitte geben Sie das Intervall in Minuten für das Senden der Nachricht ein.")
-    elif query.data == 'stop_broadcast':
-        if user_id in scheduled_jobs:
-            job = scheduled_jobs[user_id]
-            job.schedule_removal()
-            del scheduled_jobs[user_id]
-            await query.message.reply_text("🛑 Die Verteilung wurde gestoppt.")
-        else:
-            await query.message.reply_text("❌ Keine aktive Verteilung.")
-
 
 async def receive_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
-    logging.info(f"Получено сообщение от пользователя {user_id}")
+    username = update.message.from_user.username
+    logging.info(f"Получено сообщение от пользователя {user_id} (@{username})")
 
-    if user_id in user_data:
-        state = user_data[user_id].get('state')
-        if state == 'awaiting_interval':
-            # Получаем интервал
-            try:
-                interval = int(update.message.text)
-                if interval <= 0:
-                    raise ValueError
-                user_data[user_id]['interval'] = interval
-                user_data[user_id]['state'] = 'awaiting_broadcast_message'
-                await update.message.reply_text(
-                    f"⏰ Das Intervall wurde auf {interval} Minuten eingestellt.\n"
-                    f"✉️ Jetzt senden Sie bitte die Nachricht für die Verteilung."
-                )
-            except ValueError:
-                await update.message.reply_text("⚠️ Bitte geben Sie eine positive ganze Zahl ein.")
-        elif state == 'awaiting_broadcast_message':
-            message_to_forward = update.message
-            interval = user_data[user_id]['interval']
+    if user_id in BLOCKED_USER_IDS or (username and username not in ALLOWED_USERNAMES):
+        await update.message.reply_text(
+            "Ihr Zugang zu diesem Bot wurde widerrufen. Kontaktieren Sie den Administrator, wenn Sie Fragen haben."
+        )
+        return
 
-            if not registered_chats:
-                await update.message.reply_text("🚫 Der Bot ist in keinem Chat hinzugefügt.")
-                user_data[user_id]['state'] = None
-                return
+    if user_id in user_data and user_data[user_id]['state'] == 'awaiting_message':
+        session = user_data[user_id]['session']
+        message_to_forward = update.message
 
-            job_queue = context.job_queue
-            if job_queue is None:
-                logging.error("JobQueue не инициализирована.")
-                await update.message.reply_text("⚠️ Ein Fehler ist aufgetreten: JobQueue ist nicht initialisiert.")
-                return
-
-            # Удаляем предыдущую задачу, если она была
-            if user_id in scheduled_jobs:
-                scheduled_jobs[user_id].schedule_removal()
-
-            job = job_queue.run_repeating(
-                send_scheduled_message,
-                interval=interval * 60,  # секунды
-                first=0,
-                data={'message': message_to_forward, 'chats': registered_chats, 'user_id': user_id}
-            )
-            scheduled_jobs[user_id] = job
-
-            await update.message.reply_text(
-                f"📤 Die Verteilung wurde gestartet. Die Nachricht wird alle {interval} Minuten gesendet."
-            )
-
+        if not registered_chats:
+            await update.message.reply_text("🚫 Der Bot ist in keinem Chat hinzugefügt.")
             user_data[user_id]['state'] = None
+            return
 
-            # Возвращаемся к кнопкам
-            await start(update, context)
-        else:
-            pass
-    else:
-        pass
+        job_queue = context.job_queue
+        if job_queue is None:
+            logging.error("JobQueue не инициализирована.")
+            await update.message.reply_text("⚠️ Ein Fehler ist aufgetreten: JobQueue ist nicht initialisiert.")
+            return
 
+        offset = (session - 1) * 60  # Смещение в секундах
+        job = job_queue.run_repeating(
+            send_scheduled_message,
+            interval=10 * 60,  # 10 минут
+            first=offset,
+            data={'message': message_to_forward, 'chats': registered_chats, 'session': session}
+        )
+        scheduled_jobs[session] = job
+        active_sessions[session] = True
+
+        await update.message.reply_text(
+            f"📤 Spam {session} wurde gestartet. Die Nachricht wird alle 10 Minuten gesendet, "
+            f"mit einem Offset von {session - 1} Minuten."
+        )
+        user_data[user_id]['state'] = None
+        await send_menu(update, context)
 
 async def send_scheduled_message(context: ContextTypes.DEFAULT_TYPE):
     job_data = context.job.data
     message_to_forward = job_data['message']
     chats = job_data['chats']
-    user_id = job_data['user_id']
+    session = job_data['session']
 
     from_chat_id = message_to_forward.chat_id
     message_id = message_to_forward.message_id
 
+    logging.info(f"Отправка сообщения для Spam {session}")
     for chat_id, chat_title in chats:
         try:
             await context.bot.forward_message(
@@ -193,7 +208,6 @@ async def send_scheduled_message(context: ContextTypes.DEFAULT_TYPE):
             logging.info(f"✅ Nachricht an Chat {chat_title} ({chat_id}) gesendet.")
         except Exception as e:
             logging.error(f"❌ Nachricht an Chat {chat_title} ({chat_id}) konnte nicht gesendet werden: {e}")
-
 
 async def my_chat_member_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     result = update.my_chat_member
@@ -215,11 +229,30 @@ async def my_chat_member_handler(update: Update, context: ContextTypes.DEFAULT_T
         save_registered_chats()
         logging.info(f"❌ Bot wurde aus dem Chat {chat_title} ({chat_id}) entfernt.")
 
-
 def save_registered_chats():
     with open(DATA_FILE, 'w', encoding='utf-8') as f:
         json.dump(list(registered_chats), f, ensure_ascii=False)
 
+async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.effective_chat.type != 'private':
+        return
+
+    user_id = update.effective_user.id
+    username = update.effective_user.username
+    logging.info(f"Пользователь {user_id} запросил команду /help.")
+
+    if user_id in BLOCKED_USER_IDS or (username and username not in ALLOWED_USERNAMES):
+        await update.message.reply_text(
+            "Ihr Zugang zu diesem Bot wurde widerrufen. Kontaktieren Sie den Administrator, wenn Sie Fragen haben."
+        )
+        return
+
+    await update.message.reply_text(
+        "ℹ️ Dieser Bot ermöglicht das Senden von Nachrichten 📤 in alle Chats, in denen er hinzugefügt wurde. 📂\n\n"
+        "🔧 Verfügbare Befehle:\n"
+        "/start - Starten Sie die Arbeit mit dem Bot 🚀\n"
+        "/help - Zeigen Sie diese Nachricht an ❓"
+    )
 
 def main():
     app = ApplicationBuilder().token(BOT_TOKEN).build()
@@ -232,6 +265,6 @@ def main():
 
     app.run_polling(drop_pending_updates=True)
 
-
 if __name__ == '__main__':
-     main()
+    main()
+
