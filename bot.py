@@ -15,7 +15,7 @@ BOT_TOKEN = '7890125145:AAErI0CeqVg_5YwDxrGfMJ_0PgnANtGj20U'
 DATA_FILE = 'registered_chats.json'
 
 # Список разрешённых @username в Телеграм
-ALLOWED_USERNAMES = {'Kekdkddkfk', 'SpammBotss', 'Ujuvd', 'evenyqlp'}
+ALLOWED_USERNAMES = {'Kekdkddkfk', 'SpammBotsss', 'Ujuvd', 'evenyqlp'}
 
 # Список заблокированных user_id (добавь user_id пользователя, которого нужно заблокировать)
 BLOCKED_USER_IDS = {6681493700}  # Замени на реальный user_id, если отличается
